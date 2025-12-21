@@ -45,7 +45,7 @@ let tankState = {
    POST / GET / PUT / DELETE
 ========================== */
 
-app.get("/tank-settings", (req, res) => {
+app.get("/tank", (req, res) => {
   res.json({
     tank_capacity: tankState.tank_capacity,
     tds: tankState.tds,
@@ -53,7 +53,7 @@ app.get("/tank-settings", (req, res) => {
   });
 });
 
-app.post("/tank-settings", (req, res) => {
+app.post("/tank", (req, res) => {
   const { tank_capacity, tds } = req.body;
 
   if (tank_capacity == null || tds == null) {
@@ -72,7 +72,7 @@ app.post("/tank-settings", (req, res) => {
   });
 });
 
-app.put("/tank-settings", (req, res) => {
+app.put("/tank", (req, res) => {
   const { tank_capacity, tds } = req.body;
 
   if (tank_capacity == null && tds == null) {
@@ -98,7 +98,7 @@ app.put("/tank-settings", (req, res) => {
   });
 });
 
-app.delete("/tank-settings", (req, res) => {
+app.delete("/tank", (req, res) => {
   tankState = {
     tank_capacity: 500,
     tds: 150,

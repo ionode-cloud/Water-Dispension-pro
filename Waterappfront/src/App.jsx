@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
 import WaterJar from "./Components/Waterjar";
 import { load } from "@cashfreepayments/cashfree-js";
-
+import "./App.css"
 const App = () => {
   const PRICE_PER_LITER = 5;
   const PRESET_LITERS = [1, 2, 5, 10, 15, 20];
+
+  // TDS state
+  const [tds, setTds] = useState(150);
 
   const [tankCapacity, setTankCapacity] = useState(500);
   const [tankRemaining, setTankRemaining] = useState(500); // from backend
@@ -20,10 +23,13 @@ const App = () => {
   useEffect(() => {
     async function fetchTankSettings() {
       try {
-        const res = await fetch("http://localhost:3567/tank-settings");
+        const res = await fetch("http://localhost:3567/tank");
         const data = await res.json();
         setTankCapacity(data.tank_capacity);
         setTankRemaining(data.remaining);
+
+        // if backend also returns tds in /tank response, you can set it here:
+        // if (data.tds != null) setTds(data.tds);
       } catch (err) {
         console.error("Error fetching tank settings:", err);
       }
@@ -66,15 +72,15 @@ const App = () => {
   };
 
   /* ===============================
-     CASHFREE PAYMENT HANDLER
-  ================================ */
+      CASHFREE PAYMENT HANDLER
+   ================================ */
   async function handlePayNow() {
     if (!amount || !mobile || !liters) {
       alert("Enter amount, mobile number, and liters");
       return;
     }
 
-    // 1️⃣ Create order from backend
+    // Create order from backend
     const res = await fetch("http://localhost:3567/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -82,6 +88,7 @@ const App = () => {
         amount,
         mobile,
         liters, // send liters to backend
+        tds,    // send TDS to backend
       }),
     });
 
@@ -98,12 +105,17 @@ const App = () => {
       setTankRemaining(data.remaining);
     }
 
-    // 2️⃣ Load Cashfree SDK
+    // If backend echoes tds back in response, update it here (optional)
+    if (data.tds != null) {
+      setTds(data.tds);
+    }
+
+    // Load Cashfree SDK
     const cashfree = await load({
       mode: "sandbox", // change to "production" later
     });
 
-    // 3️⃣ Open Cashfree Checkout
+    // Open Cashfree Checkout
     cashfree.checkout({
       paymentSessionId: data.payment_session_id,
       redirectTarget: "_self",
@@ -111,10 +123,15 @@ const App = () => {
   }
 
   return (
-    <div className="bg-blue-200 min-h-screen flex items-center justify-center p-4">
+    <div className="bg-blue-200 min-h-screen flex flex-col items-center justify-center p-4">
+      {/* Display TDS at the top */}
+      
       <div className="flex flex-col md:flex-row gap-5 p-8 bg-white rounded-xl shadow-lg w-full max-w-4xl">
         {/* Tank Section */}
         <div className="w-full md:w-1/2 flex justify-center">
+        <p className="water-tds">
+        TDS: {tds}
+      </p>
           <WaterJar
             remaining={tankRemaining}
             tankCapacity={tankCapacity}
