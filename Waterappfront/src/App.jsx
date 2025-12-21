@@ -1,0 +1,200 @@
+import React, { useState, useEffect } from "react";
+import WaterJar from "./Components/Waterjar";
+import { load } from "@cashfreepayments/cashfree-js";
+
+const App = () => {
+  const PRICE_PER_LITER = 5;
+  const PRESET_LITERS = [1, 2, 5, 10, 15, 20];
+
+  const [tankCapacity, setTankCapacity] = useState(500);
+  const [tankRemaining, setTankRemaining] = useState(500); // from backend
+
+  const [liters, setLiters] = useState(0);
+  const [amount, setAmount] = useState(0);
+  const [mobile, setMobile] = useState("");
+  const [litersInput, setLitersInput] = useState("");
+  const [amountInput, setAmountInput] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  // Fetch tank settings (including remaining) on load
+  useEffect(() => {
+    async function fetchTankSettings() {
+      try {
+        const res = await fetch("http://localhost:3567/tank-settings");
+        const data = await res.json();
+        setTankCapacity(data.tank_capacity);
+        setTankRemaining(data.remaining);
+      } catch (err) {
+        console.error("Error fetching tank settings:", err);
+      }
+    }
+
+    fetchTankSettings();
+  }, []);
+
+  const calculateFromLiters = (value) => {
+    if (value > tankRemaining) {
+      alert(`Water not available! Only ${tankRemaining}L left.`);
+      setLiters(0);
+      setAmount(0);
+      setLitersInput("");
+      setAmountInput("");
+    } else {
+      const cost = value * PRICE_PER_LITER;
+      setLiters(value);
+      setAmount(cost);
+      setLitersInput(value.toString());
+      setAmountInput(cost.toString());
+      setShowDropdown(false);
+    }
+  };
+
+  const calculateFromAmount = (value) => {
+    const literValue = value / PRICE_PER_LITER;
+    if (literValue > tankRemaining) {
+      alert(`Water not available! Only ${tankRemaining}L left.`);
+      setLiters(0);
+      setAmount(0);
+      setLitersInput("");
+      setAmountInput("");
+    } else {
+      setLiters(literValue);
+      setAmount(value);
+      setLitersInput(literValue.toString());
+      setAmountInput(value.toString());
+    }
+  };
+
+  /* ===============================
+     CASHFREE PAYMENT HANDLER
+  ================================ */
+  async function handlePayNow() {
+    if (!amount || !mobile || !liters) {
+      alert("Enter amount, mobile number, and liters");
+      return;
+    }
+
+    // 1️⃣ Create order from backend
+    const res = await fetch("http://localhost:3567/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount,
+        mobile,
+        liters, // send liters to backend
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error("Backend error:", data);
+      alert("Order creation failed. Check backend logs.");
+      return;
+    }
+
+    // Update remaining from backend response (before payment)
+    if (data.remaining != null) {
+      setTankRemaining(data.remaining);
+    }
+
+    // 2️⃣ Load Cashfree SDK
+    const cashfree = await load({
+      mode: "sandbox", // change to "production" later
+    });
+
+    // 3️⃣ Open Cashfree Checkout
+    cashfree.checkout({
+      paymentSessionId: data.payment_session_id,
+      redirectTarget: "_self",
+    });
+  }
+
+  return (
+    <div className="bg-blue-200 min-h-screen flex items-center justify-center p-4">
+      <div className="flex flex-col md:flex-row gap-5 p-8 bg-white rounded-xl shadow-lg w-full max-w-4xl">
+        {/* Tank Section */}
+        <div className="w-full md:w-1/2 flex justify-center">
+          <WaterJar
+            remaining={tankRemaining}
+            tankCapacity={tankCapacity}
+            label="Water Tank"
+          />
+        </div>
+
+        {/* Form Section */}
+        <div className="w-full md:w-1/2 p-6 bg-gray-100 rounded-lg">
+          <h1 className="text-3xl font-bold mb-6 text-center">
+            Water Dispensation
+          </h1>
+
+          {/* Liters */}
+          <div className="relative mb-4">
+            <label className="block text-sm mb-1">Liters</label>
+            <input
+              type="number"
+              value={litersInput}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setLitersInput(e.target.value);
+                if (!isNaN(val)) calculateFromLiters(val);
+              }}
+              onFocus={() => setShowDropdown(true)}
+              onBlur={() => setShowDropdown(false)}
+              className="w-full border px-3 py-2 rounded"
+            />
+            {showDropdown && (
+              <ul className="absolute w-full bg-white border mt-1">
+                {PRESET_LITERS.map((l) => (
+                  <li
+                    key={l}
+                    className="px-3 py-2 hover:bg-blue-500 hover:text-white cursor-pointer"
+                    onMouseDown={() => calculateFromLiters(l)}
+                  >
+                    {l} Liter
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Amount */}
+          <div className="mb-4">
+            <label className="block text-sm mb-1">Amount</label>
+            <input
+              type="text"
+              value={amountInput}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^0-9.]/g, "");
+                setAmountInput(val);
+                const num = parseFloat(val);
+                if (!isNaN(num)) calculateFromAmount(num);
+              }}
+              className="w-full border px-3 py-2 rounded"
+            />
+          </div>
+
+          {/* Mobile */}
+          <div className="mb-6">
+            <label className="block text-sm mb-1">Mobile Number</label>
+            <input
+              type="tel"
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value)}
+              className="w-full border px-3 py-2 rounded"
+            />
+          </div>
+
+          <button
+            onClick={handlePayNow}
+            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+          >
+            Pay Now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default App;
