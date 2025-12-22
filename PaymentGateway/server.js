@@ -12,10 +12,17 @@ const app = express();
 const port = process.env.PORT || 3567;
 
 /* MIDDLEWARE */
-app.use(bodyParser.json());
-app.use(cors());
+
 app.use(express.static("public"));
 
+
+app.use(
+  cors({
+    origin: ["http://localhost:5173","https://water-dispension.vercel.app","*"],
+    methods: "GET,POST,PUT,DELETE",
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 /*  MONGODB CONNECTION */
 mongoose
   .connect(process.env.MONGO_URI)
