@@ -149,6 +149,7 @@ const App = () => {
           <div className="relative mb-4">
             <label className="block text-sm mb-1">Liters</label>
             <input
+            placeholder="Select or type manually"
               type="number"
               value={litersInput}
               onChange={(e) => {
@@ -195,6 +196,7 @@ const App = () => {
           <div className="mb-6">
             <label className="block text-sm mb-1">Mobile Number</label>
             <input
+              placeholder="+91"
               type="tel"
               value={mobile}
               onChange={(e) => setMobile(e.target.value)}
