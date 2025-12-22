@@ -23,7 +23,7 @@ const App = () => {
   useEffect(() => {
     async function fetchTankSettings() {
       try {
-        const res = await fetch("http://localhost:3567/tank");
+        const res = await fetch("https://water-dispension.onrender.com/tank");
         const data = await res.json();
         setTankCapacity(data.tank_capacity);
         setTankRemaining(data.remaining);
@@ -81,7 +81,7 @@ const App = () => {
     }
 
     // Create order from backend
-    const res = await fetch("http://localhost:3567/create-order", {
+    const res = await fetch("https://water-dispension.onrender.com/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
