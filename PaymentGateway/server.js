@@ -58,71 +58,110 @@ const cashfree = new Cashfree(
 
 // GET tank
 app.get("/tank", async (req, res) => {
-  let tank = await Tank.findOne();
+  try {
+    let tank = await Tank.findOne();
 
-  if (!tank) {
-    tank = await Tank.create({
-      tank_capacity: 500,
-      tds: 150,
-      remaining: 500,
-    });
+    if (!tank) {
+      tank = await Tank.create({
+        tank_capacity: 5000,
+        tds: 150,
+        remaining: 5000,
+      });
+    }
+
+    res.json(tank);
+  } catch (err) {
+    console.error("Error fetching tank:", err);
+    res.status(500).json({ error: "Failed to fetch tank data" });
   }
-
-  res.json(tank);
 });
 
 // CREATE / RESET tank
 app.post("/tank", async (req, res) => {
-  const { tank_capacity, tds } = req.body;
+  try {
+    const { tank_capacity, tds } = req.body;
 
-  if (tank_capacity == null || tds == null) {
-    return res.status(400).json({ error: "tank_capacity and tds required" });
+    if (tank_capacity == null || tds == null) {
+      return res.status(400).json({ error: "tank_capacity and tds required" });
+    }
+
+    await Tank.deleteMany();
+
+    const tank = await Tank.create({
+      tank_capacity: Number(tank_capacity),
+      tds: Number(tds),
+      remaining: Number(tank_capacity),
+    });
+
+    res.status(201).json({ message: "Tank created", tank });
+  } catch (err) {
+    console.error("Error creating tank:", err);
+    res.status(500).json({ error: "Failed to create tank" });
   }
-
-  await Tank.deleteMany();
-
-  const tank = await Tank.create({
-    tank_capacity: Number(tank_capacity),
-    tds: Number(tds),
-    remaining: Number(tank_capacity),
-  });
-
-  res.status(201).json({ message: "Tank created", tank });
 });
 
-// UPDATE tank
+// UPDATE tank - NOW INCLUDES REMAINING FIELD
 app.put("/tank", async (req, res) => {
-  const { tank_capacity, tds } = req.body;
+  try {
+    const { tank_capacity, tds, remaining } = req.body;
 
-  const tank = await Tank.findOne();
-  if (!tank) return res.status(404).json({ error: "Tank not found" });
+    const tank = await Tank.findOne();
+    if (!tank) return res.status(404).json({ error: "Tank not found" });
 
-  if (tank_capacity != null) {
-    tank.tank_capacity = Number(tank_capacity);
-    if (tank.remaining > tank.tank_capacity) {
-      tank.remaining = tank.tank_capacity;
+    // Update tank_capacity if provided
+    if (tank_capacity != null) {
+      tank.tank_capacity = Number(tank_capacity);
+      // If remaining exceeds new capacity, adjust it
+      if (tank.remaining > tank.tank_capacity) {
+        tank.remaining = tank.tank_capacity;
+      }
     }
-  }
 
-  if (tds != null) {
-    tank.tds = Number(tds);
-  }
+    // Update TDS if provided
+    if (tds != null) {
+      tank.tds = Number(tds);
+    }
 
-  await tank.save();
-  res.json({ message: "Tank updated", tank });
+    // Update remaining if provided (THIS IS THE FIX)
+    if (remaining != null) {
+      const newRemaining = Number(remaining);
+      // Validate remaining doesn't exceed capacity
+      if (newRemaining > tank.tank_capacity) {
+        return res.status(400).json({
+          error: "Remaining cannot exceed tank capacity",
+          tank_capacity: tank.tank_capacity,
+        });
+      }
+      if (newRemaining < 0) {
+        return res.status(400).json({ error: "Remaining cannot be negative" });
+      }
+      tank.remaining = newRemaining;
+    }
+
+    await tank.save();
+    res.json({ message: "Tank updated", tank });
+  } catch (err) {
+    console.error("Error updating tank:", err);
+    res.status(500).json({ error: "Failed to update tank" });
+  }
 });
 
 // DELETE tank (reset to default)
 app.delete("/tank", async (req, res) => {
-  await Tank.deleteMany();
+  try {
+    await Tank.deleteMany();
 
-  const tank = await Tank.create({
-    tank_capacity: 500,
-    tds: 150,
-    remaining: 500,
-  });
+    const tank = await Tank.create({
+      tank_capacity: 5000,
+      tds: 150,
+      remaining: 5000,
+    });
 
-  res.json({ message: "Tank reset", tank });
+    res.json({ message: "Tank reset", tank });
+  } catch (err) {
+    console.error("Error resetting tank:", err);
+    res.status(500).json({ error: "Failed to reset tank" });
+  }
 });
 
 /*CREATE ORDER */
@@ -167,9 +206,10 @@ app.post("/create-order", async (req, res) => {
       payment_session_id: response.data.payment_session_id,
       order_id: response.data.order_id,
       remaining: tank.remaining,
+      tds: tank.tds,
     });
   } catch (err) {
-    console.error(err);
+    console.error("Order creation error:", err);
     res.status(500).json({ error: "Order creation failed" });
   }
 });
@@ -185,6 +225,11 @@ app.get("/payment-success", async (req, res) => {
       const used = Number(liters) || 0;
 
       const tank = await Tank.findOne();
+      if (!tank) {
+        return res.status(404).send("<h3>Tank not found</h3>");
+      }
+
+      // Update remaining water
       tank.remaining = Math.max(0, tank.remaining - used);
       await tank.save();
 
@@ -208,7 +253,7 @@ app.get("/payment-success", async (req, res) => {
       res.send("<h3>Payment Failed or Pending</h3>");
     }
   } catch (err) {
-    console.error(err);
+    console.error("Payment verification error:", err);
     res.send("<h3>Error verifying payment</h3>");
   }
 });
