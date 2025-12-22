@@ -122,7 +122,7 @@ app.put("/tank", async (req, res) => {
       tank.tds = Number(tds);
     }
 
-    // Update remaining if provided (THIS IS THE FIX)
+    // Update remaining if provided
     if (remaining != null) {
       const newRemaining = Number(remaining);
       // Validate remaining doesn't exceed capacity
@@ -185,6 +185,11 @@ app.post("/create-order", async (req, res) => {
 
     const orderId = `order_${Date.now()}`;
 
+    // FIX: Use environment variable for base URL
+    // For production (Render), use your deployed URL
+    // For local testing with ngrok, set BASE_URL in .env
+    const baseUrl = process.env.BASE_URL || `https://water-dispension.onrender.com`;
+
     const request = {
       order_id: orderId,
       order_amount: Number(amount),
@@ -196,7 +201,7 @@ app.post("/create-order", async (req, res) => {
         customer_phone: mobile,
       },
       order_meta: {
-        return_url: `http://localhost:${port}/payment-success?order_id=${orderId}&liters=${liters}`,
+        return_url: `${baseUrl}/payment-success?order_id=${orderId}&liters=${liters}`,
       },
     };
 
@@ -255,6 +260,23 @@ app.get("/payment-success", async (req, res) => {
   } catch (err) {
     console.error("Payment verification error:", err);
     res.send("<h3>Error verifying payment</h3>");
+  }
+});
+
+// NEW: Check payment status endpoint for frontend polling
+app.get("/check-payment-status/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const response = await cashfree.PGFetchOrder(orderId);
+    
+    res.json({
+      status: response.data.order_status,
+      amount: response.data.order_amount,
+      order_id: response.data.order_id,
+    });
+  } catch (err) {
+    console.error("Status check error:", err);
+    res.status(500).json({ error: "Failed to check payment status" });
   }
 });
 
