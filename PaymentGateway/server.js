@@ -11,30 +11,33 @@ const { Cashfree, CFEnvironment } = require("cashfree-pg");
 const app = express();
 const port = process.env.PORT || 3567;
 
-/* MIDDLEWARE */
+/* ================= MIDDLEWARE ================= */
 app.use(bodyParser.json());
 app.use(cors());
 app.use(express.static("public"));
 
-/*  MONGODB CONNECTION */
+/* ================= MONGODB CONNECTION ================= */
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log(" MongoDB Connected"))
   .catch((err) => console.error("MongoDB Error:", err));
 
-/* TANK SCHEMA */
+/* ================= TANK SCHEMA ================= */
 const tankSchema = new mongoose.Schema(
   {
     tank_capacity: { type: Number, required: true },
     tds: { type: Number, required: true },
     remaining: { type: Number, required: true },
+
+    // NEW FIELD
+    request: { type: Number, required: true, default: 0 },
   },
   { timestamps: true }
 );
 
 const Tank = mongoose.model("Tank", tankSchema);
 
-/* ORDER FILE SETUP */
+/* ================= ORDER FILE SETUP ================= */
 const ORDERS_FILE = path.join(__dirname, "order.json");
 
 if (!fs.existsSync(ORDERS_FILE)) {
@@ -47,14 +50,14 @@ function saveOrder(order) {
   fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
 }
 
-/* CASHFREE INIT */
+/* ================= CASHFREE INIT ================= */
 const cashfree = new Cashfree(
   CFEnvironment.SANDBOX,
   process.env.CF_CLIENT_ID,
   process.env.CF_CLIENT_SECRET
 );
 
-/* TANK APIs*/
+/* ================= TANK APIs ================= */
 
 // GET tank
 app.get("/tank", async (req, res) => {
@@ -66,12 +69,15 @@ app.get("/tank", async (req, res) => {
         tank_capacity: 5000,
         tds: 150,
         remaining: 5000,
+        request: 0,
       });
     }
 
-    res.json(tank);
+    res.json({
+      ...tank.toObject(),
+      deducted_water: tank.tank_capacity - tank.remaining,
+    });
   } catch (err) {
-    console.error("Error fetching tank:", err);
     res.status(500).json({ error: "Failed to fetch tank data" });
   }
 });
@@ -91,16 +97,16 @@ app.post("/tank", async (req, res) => {
       tank_capacity: Number(tank_capacity),
       tds: Number(tds),
       remaining: Number(tank_capacity),
+      request: 0,
     });
 
     res.status(201).json({ message: "Tank created", tank });
   } catch (err) {
-    console.error("Error creating tank:", err);
     res.status(500).json({ error: "Failed to create tank" });
   }
 });
 
-// UPDATE tank - NOW INCLUDES REMAINING FIELD
+// UPDATE tank
 app.put("/tank", async (req, res) => {
   try {
     const { tank_capacity, tds, remaining } = req.body;
@@ -108,45 +114,34 @@ app.put("/tank", async (req, res) => {
     const tank = await Tank.findOne();
     if (!tank) return res.status(404).json({ error: "Tank not found" });
 
-    // Update tank_capacity if provided
     if (tank_capacity != null) {
       tank.tank_capacity = Number(tank_capacity);
-      // If remaining exceeds new capacity, adjust it
       if (tank.remaining > tank.tank_capacity) {
         tank.remaining = tank.tank_capacity;
       }
     }
 
-    // Update TDS if provided
-    if (tds != null) {
-      tank.tds = Number(tds);
-    }
+    if (tds != null) tank.tds = Number(tds);
 
-    // Update remaining if provided
     if (remaining != null) {
-      const newRemaining = Number(remaining);
-      // Validate remaining doesn't exceed capacity
-      if (newRemaining > tank.tank_capacity) {
-        return res.status(400).json({
-          error: "Remaining cannot exceed tank capacity",
-          tank_capacity: tank.tank_capacity,
-        });
+      if (remaining < 0 || remaining > tank.tank_capacity) {
+        return res.status(400).json({ error: "Invalid remaining value" });
       }
-      if (newRemaining < 0) {
-        return res.status(400).json({ error: "Remaining cannot be negative" });
-      }
-      tank.remaining = newRemaining;
+      tank.remaining = Number(remaining);
     }
 
     await tank.save();
-    res.json({ message: "Tank updated", tank });
+    res.json({
+      message: "Tank updated",
+      tank,
+      deducted_water: tank.tank_capacity - tank.remaining,
+    });
   } catch (err) {
-    console.error("Error updating tank:", err);
     res.status(500).json({ error: "Failed to update tank" });
   }
 });
 
-// DELETE tank (reset to default)
+// DELETE tank (reset)
 app.delete("/tank", async (req, res) => {
   try {
     await Tank.deleteMany();
@@ -155,16 +150,51 @@ app.delete("/tank", async (req, res) => {
       tank_capacity: 5000,
       tds: 150,
       remaining: 5000,
+      request: 0,
     });
 
     res.json({ message: "Tank reset", tank });
   } catch (err) {
-    console.error("Error resetting tank:", err);
     res.status(500).json({ error: "Failed to reset tank" });
   }
 });
 
-/*CREATE ORDER */
+/* ================= WATER REQUEST API ================= */
+app.post("/tank/request", async (req, res) => {
+  try {
+    const { request } = req.body;
+
+    if (!request || request <= 0) {
+      return res.status(400).json({ error: "Invalid request value" });
+    }
+
+    const tank = await Tank.findOne();
+    if (!tank) return res.status(404).json({ error: "Tank not found" });
+
+    if (request > tank.remaining) {
+      return res.status(400).json({
+        error: "INSUFFICIENT_WATER",
+        available: tank.remaining,
+      });
+    }
+
+    tank.request = Number(request);
+    tank.remaining -= request;
+
+    await tank.save();
+
+    res.json({
+      message: "Water requested successfully",
+      request: tank.request,
+      deducted_water: tank.tank_capacity - tank.remaining,
+      remaining: tank.remaining,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to process request" });
+  }
+});
+
+/* ================= CREATE ORDER ================= */
 app.post("/create-order", async (req, res) => {
   try {
     const { amount, mobile, liters } = req.body;
@@ -184,11 +214,8 @@ app.post("/create-order", async (req, res) => {
     }
 
     const orderId = `order_${Date.now()}`;
-
-    // FIX: Use environment variable for base URL
-    // For production (Render), use your deployed URL
-    // For local testing with ngrok, set BASE_URL in .env
-    const baseUrl = process.env.BASE_URL || `https://water-dispension.onrender.com`;
+    const baseUrl =
+      process.env.BASE_URL || "https://water-dispension.onrender.com";
 
     const request = {
       order_id: orderId,
@@ -214,12 +241,11 @@ app.post("/create-order", async (req, res) => {
       tds: tank.tds,
     });
   } catch (err) {
-    console.error("Order creation error:", err);
     res.status(500).json({ error: "Order creation failed" });
   }
 });
 
-/* PAYMENT SUCCESS */
+/* ================= PAYMENT SUCCESS ================= */
 app.get("/payment-success", async (req, res) => {
   const { order_id, liters } = req.query;
 
@@ -230,57 +256,30 @@ app.get("/payment-success", async (req, res) => {
       const used = Number(liters) || 0;
 
       const tank = await Tank.findOne();
-      if (!tank) {
-        return res.status(404).send("<h3>Tank not found</h3>");
-      }
-
-      // Update remaining water
       tank.remaining = Math.max(0, tank.remaining - used);
+      tank.request = 0;
       await tank.save();
 
-      const bill = {
-        order_id: response.data.order_id,
+      saveOrder({
+        order_id,
         amount: response.data.order_amount,
-        currency: response.data.order_currency,
         liters: used,
-        customer: response.data.customer_details,
-        payment_status: "PAID",
-        payment_time: new Date().toISOString(),
         remaining_water: tank.remaining,
-      };
-
-      saveOrder(bill);
+        payment_status: "PAID",
+      });
 
       res.redirect(
-        `/bill.html?order_id=${bill.order_id}&amount=${bill.amount}&liters=${used}&remaining=${tank.remaining}`
+        `/bill.html?order_id=${order_id}&liters=${used}&remaining=${tank.remaining}`
       );
     } else {
       res.send("<h3>Payment Failed or Pending</h3>");
     }
   } catch (err) {
-    console.error("Payment verification error:", err);
     res.send("<h3>Error verifying payment</h3>");
   }
 });
 
-// NEW: Check payment status endpoint for frontend polling
-app.get("/check-payment-status/:orderId", async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const response = await cashfree.PGFetchOrder(orderId);
-    
-    res.json({
-      status: response.data.order_status,
-      amount: response.data.order_amount,
-      order_id: response.data.order_id,
-    });
-  } catch (err) {
-    console.error("Status check error:", err);
-    res.status(500).json({ error: "Failed to check payment status" });
-  }
-});
-
-/*  START SERVER*/
+/* ================= SERVER ================= */
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
