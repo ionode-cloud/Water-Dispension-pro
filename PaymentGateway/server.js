@@ -29,10 +29,14 @@ const tankSchema = new mongoose.Schema(
     tds: { type: Number, required: true },
     remaining: { type: Number, required: true },
 
-    deducted_water: { type: Number, default: 0 }, 
+    deducted_water: { type: Number, default: 0 }, // manual value
+    force_deducted: { type: Boolean, default: false }, // 🔑 toggle
+
+    request: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
+
 
 const Tank = mongoose.model("Tank", tankSchema);
 
@@ -65,48 +69,36 @@ app.get("/tank", async (req, res) => {
 
     if (!tank) {
       tank = await Tank.create({
-        tank_capacity: 4000,
+        tank_capacity: 102,
         tds: 150,
-        remaining: 3980,
-        request: 0,
+        remaining: 90,
       });
     }
 
-    res.json(tank);
+    const deducted =
+      tank.force_deducted === true
+        ? tank.deducted_water
+        : tank.tank_capacity - tank.remaining;
 
+    res.json({
+      ...tank.toObject(),
+      deducted_water: deducted,
+    });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch tank data" });
-  }
-});
-
-// CREATE / RESET tank
-app.post("/tank", async (req, res) => {
-  try {
-    const { tank_capacity, tds } = req.body;
-
-    if (tank_capacity == null || tds == null) {
-      return res.status(400).json({ error: "tank_capacity and tds required" });
-    }
-
-    await Tank.deleteMany();
-
-    const tank = await Tank.create({
-      tank_capacity: Number(tank_capacity),
-      tds: Number(tds),
-      remaining: Number(tank_capacity),
-      request: 0,
-    });
-
-    res.status(201).json({ message: "Tank created", tank });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to create tank" });
   }
 });
 
 // UPDATE tank
 app.put("/tank", async (req, res) => {
   try {
-    const { tank_capacity, tds, remaining, deducted_water } = req.body;
+    const {
+      tank_capacity,
+      tds,
+      remaining,
+      deducted_water,
+      force_deducted,
+    } = req.body;
 
     const tank = await Tank.findOne();
     if (!tank) return res.status(404).json({ error: "Tank not found" });
@@ -115,11 +107,13 @@ app.put("/tank", async (req, res) => {
     if (tds !== undefined) tank.tds = Number(tds);
     if (remaining !== undefined) tank.remaining = Number(remaining);
 
-    // ✅ FORCE deducted_water (ALLOW 0)
+    // allow force toggle
+    if (force_deducted !== undefined) {
+      tank.force_deducted = Boolean(force_deducted);
+    }
+
+    // allow manual value ONLY when forced
     if (deducted_water !== undefined) {
-      if (deducted_water < 0) {
-        return res.status(400).json({ error: "Invalid deducted_water" });
-      }
       tank.deducted_water = Number(deducted_water);
     }
 
