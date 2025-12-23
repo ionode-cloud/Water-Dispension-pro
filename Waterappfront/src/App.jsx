@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from "react";
 import WaterJar from "./Components/Waterjar";
 import { load } from "@cashfreepayments/cashfree-js";
-import "./App.css"
+import "./App.css";
+
 const App = () => {
   const PRICE_PER_LITER = 5;
   const PRESET_LITERS = [1, 2, 5, 10, 15, 20];
 
   // TDS state
-  const [tds, setTds] = useState(150);
+  const [tds, setTds] = useState(0);
 
   const [tankCapacity, setTankCapacity] = useState(500);
-  const [tankRemaining, setTankRemaining] = useState(500); // from backend
+  const [tankRemaining, setTankRemaining] = useState(500);
 
   const [liters, setLiters] = useState(0);
   const [amount, setAmount] = useState(0);
@@ -19,24 +20,27 @@ const App = () => {
   const [amountInput, setAmountInput] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
 
-  // Fetch tank settings (including remaining) on load
+  // Fetch tank settings (including TDS and remaining) on load
   useEffect(() => {
-    async function fetchTankSettings() {
-      try {
-        const res = await fetch("https://water-dispension.onrender.com/tank");
-        const data = await res.json();
-        setTankCapacity(data.tank_capacity);
-        setTankRemaining(data.remaining);
-
-        // if backend also returns tds in /tank response, you can set it here:
-        // if (data.tds != null) setTds(data.tds);
-      } catch (err) {
-        console.error("Error fetching tank settings:", err);
-      }
-    }
-
     fetchTankSettings();
   }, []);
+
+  // Extract fetch logic into a reusable function
+  async function fetchTankSettings() {
+    try {
+      const res = await fetch("https://water-dispension.onrender.com/tank");
+      const data = await res.json();
+      setTankCapacity(data.tank_capacity);
+      setTankRemaining(data.remaining);
+      
+      // ✅ FIX: Fetch TDS from backend
+      if (data.tds != null) {
+        setTds(data.tds);
+      }
+    } catch (err) {
+      console.error("Error fetching tank settings:", err);
+    }
+  }
 
   const calculateFromLiters = (value) => {
     if (value > tankRemaining) {
@@ -80,58 +84,67 @@ const App = () => {
       return;
     }
 
-    // Create order from backend
-    const res = await fetch("https://water-dispension.onrender.com/create-order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        amount,
-        mobile,
-        liters, // send liters to backend
-        tds,    // send TDS to backend
-      }),
-    });
+    try {
+      // Create order from backend
+      const res = await fetch("https://water-dispension.onrender.com/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          mobile,
+          liters,
+        }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok) {
-      console.error("Backend error:", data);
-      alert("Order creation failed. Check backend logs.");
-      return;
+      if (!res.ok) {
+        console.error("Backend error:", data);
+        alert(data.error || "Order creation failed. Check backend logs.");
+        return;
+      }
+
+      // Update remaining from backend response (before payment)
+      if (data.remaining != null) {
+        setTankRemaining(data.remaining);
+      }
+
+      // ✅ FIX: Update TDS from backend response
+      if (data.tds != null) {
+        setTds(data.tds);
+      }
+
+      // Load Cashfree SDK
+      const cashfree = await load({
+        mode: "sandbox", // change to "production" later
+      });
+
+      // Open Cashfree Checkout
+      cashfree.checkout({
+        paymentSessionId: data.payment_session_id,
+        redirectTarget: "_self",
+        onSuccess: () => {
+          // ✅ FIX: Refresh tank data after successful payment
+          setTimeout(() => {
+            fetchTankSettings();
+          }, 2000);
+        },
+      });
+    } catch (err) {
+      console.error("Payment error:", err);
+      alert("Payment failed. Please try again.");
     }
-
-    // Update remaining from backend response (before payment)
-    if (data.remaining != null) {
-      setTankRemaining(data.remaining);
-    }
-
-    // If backend echoes tds back in response, update it here (optional)
-    if (data.tds != null) {
-      setTds(data.tds);
-    }
-
-    // Load Cashfree SDK
-    const cashfree = await load({
-      mode: "sandbox", // change to "production" later
-    });
-
-    // Open Cashfree Checkout
-    cashfree.checkout({
-      paymentSessionId: data.payment_session_id,
-      redirectTarget: "_self",
-    });
   }
 
   return (
     <div className="bg-blue-200 min-h-screen flex flex-col items-center justify-center p-4">
-      {/* Display TDS at the top */}
-      
       <div className="flex flex-col md:flex-row gap-5 p-8 bg-white rounded-xl shadow-lg w-full max-w-4xl">
         {/* Tank Section */}
-        <div className="w-full md:w-1/2 flex justify-center">
-        <p className="water-tds">
-        TDS: {tds}
-      </p>
+        <div className="w-full md:w-1/2 flex flex-col items-center">
+          {/* Display TDS at the top */}
+          <p className="water-tds text-xl font-bold mb-4">
+            TDS: {tds} ppm
+          </p>
           <WaterJar
             remaining={tankRemaining}
             tankCapacity={tankCapacity}
@@ -147,9 +160,9 @@ const App = () => {
 
           {/* Liters */}
           <div className="relative mb-4">
-            <label className="block text-sm mb-1">Liters</label>
+            <label className="block text-sm mb-1 font-semibold">Liters</label>
             <input
-            placeholder="Select or type manually"
+              placeholder="Select or type manually"
               type="number"
               value={litersInput}
               onChange={(e) => {
@@ -158,11 +171,11 @@ const App = () => {
                 if (!isNaN(val)) calculateFromLiters(val);
               }}
               onFocus={() => setShowDropdown(true)}
-              onBlur={() => setShowDropdown(false)}
-              className="w-full border px-3 py-2 rounded"
+              onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+              className="w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {showDropdown && (
-              <ul className="absolute w-full bg-white border mt-1">
+              <ul className="absolute w-full bg-white border mt-1 rounded shadow-lg z-10 max-h-48 overflow-y-auto">
                 {PRESET_LITERS.map((l) => (
                   <li
                     key={l}
@@ -178,8 +191,9 @@ const App = () => {
 
           {/* Amount */}
           <div className="mb-4">
-            <label className="block text-sm mb-1">Amount</label>
+            <label className="block text-sm mb-1 font-semibold">Amount (₹)</label>
             <input
+              placeholder="Enter amount"
               type="text"
               value={amountInput}
               onChange={(e) => {
@@ -188,25 +202,25 @@ const App = () => {
                 const num = parseFloat(val);
                 if (!isNaN(num)) calculateFromAmount(num);
               }}
-              className="w-full border px-3 py-2 rounded"
+              className="w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           {/* Mobile */}
           <div className="mb-6">
-            <label className="block text-sm mb-1">Mobile Number</label>
+            <label className="block text-sm mb-1 font-semibold">Mobile Number</label>
             <input
               placeholder="+91"
               type="tel"
               value={mobile}
               onChange={(e) => setMobile(e.target.value)}
-              className="w-full border px-3 py-2 rounded"
+              className="w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <button
             onClick={handlePayNow}
-            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+            className="w-full bg-blue-600 text-white py-3 rounded hover:bg-blue-700 font-semibold transition duration-200"
           >
             Pay Now
           </button>
