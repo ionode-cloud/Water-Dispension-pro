@@ -179,16 +179,14 @@ app.post("/tank/request", async (req, res) => {
       });
     }
 
+    // ✅ ONLY STORE REQUEST — DO NOT DEDUCT
     tank.request = Number(request);
-    tank.remaining -= request;
-
     await tank.save();
 
     res.json({
-      message: "Water requested successfully",
+      message: "Request stored, proceed to payment",
       request: tank.request,
       remaining: tank.remaining,
-      deducted_water: tank.tank_capacity - tank.remaining,
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to process request" });
