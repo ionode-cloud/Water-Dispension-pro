@@ -78,15 +78,45 @@ const App = () => {
   /* ===============================
       CASHFREE PAYMENT HANDLER
    ================================ */
-  async function handlePayNow() {
-    if (!amount || !mobile || !liters) {
-      alert("Enter amount, mobile number, and liters");
+async function handlePayNow() {
+  if (!amount || !mobile || !liters) {
+    alert("Enter amount, mobile number, and liters");
+    return;
+  }
+
+  try {
+    /* ================================
+       1️⃣ STORE REQUEST IN BACKEND
+       request = tank_capacity - remaining
+    ================================= */
+    const requestValue = tankCapacity - tankRemaining;
+
+    const requestRes = await fetch(
+      "https://water-dispension.onrender.com/tank/request",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          request: requestValue,
+        }),
+      }
+    );
+
+    const requestData = await requestRes.json();
+
+    if (!requestRes.ok) {
+      alert(requestData.error || "Failed to store request");
       return;
     }
 
-    try {
-      // Create order from backend
-      const res = await fetch("https://water-dispension.onrender.com/create-order", {
+    console.log("Request stored:", requestData);
+
+    /* ================================
+       2️⃣ CREATE CASHFREE ORDER
+    ================================= */
+    const res = await fetch(
+      "https://water-dispension.onrender.com/create-order",
+      {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -94,47 +124,43 @@ const App = () => {
           mobile,
           liters,
         }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        console.error("Backend error:", data);
-        alert(data.error || "Order creation failed. Check backend logs.");
-        return;
       }
+    );
 
-      // Update remaining from backend response (before payment)
-      if (data.remaining != null) {
-        setTankRemaining(data.remaining);
-      }
+    const data = await res.json();
 
-      // ✅ FIX: Update TDS from backend response
-      if (data.tds != null) {
-        setTds(data.tds);
-      }
-
-      // Load Cashfree SDK
-      const cashfree = await load({
-        mode: "sandbox", // change to "production" later
-      });
-
-      // Open Cashfree Checkout
-      cashfree.checkout({
-        paymentSessionId: data.payment_session_id,
-        redirectTarget: "_self",
-        onSuccess: () => {
-          // ✅ FIX: Refresh tank data after successful payment
-          setTimeout(() => {
-            fetchTankSettings();
-          }, 2000);
-        },
-      });
-    } catch (err) {
-      console.error("Payment error:", err);
-      alert("Payment failed. Please try again.");
+    if (!res.ok) {
+      console.error("Backend error:", data);
+      alert(data.error || "Order creation failed");
+      return;
     }
+
+    // Update UI from backend response
+    if (data.remaining != null) setTankRemaining(data.remaining);
+    if (data.tds != null) setTds(data.tds);
+
+    /* ================================
+       3️⃣ OPEN CASHFREE CHECKOUT
+    ================================= */
+    const cashfree = await load({
+      mode: "sandbox", // change to "production" later
+    });
+
+    cashfree.checkout({
+      paymentSessionId: data.payment_session_id,
+      redirectTarget: "_self",
+      onSuccess: () => {
+        setTimeout(() => {
+          fetchTankSettings();
+        }, 2000);
+      },
+    });
+  } catch (err) {
+    console.error("Payment error:", err);
+    alert("Payment failed. Please try again.");
   }
+}
+
 
   return (
     <div className="bg-blue-200 min-h-screen flex flex-col items-center justify-center p-4">
