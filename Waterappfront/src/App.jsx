@@ -78,7 +78,7 @@ const App = () => {
   /* ===============================
       CASHFREE PAYMENT HANDLER
    ================================ */
-async function handlePayNow() {
+  async function handlePayNow() {
   if (!amount || !mobile || !liters) {
     alert("Enter amount, mobile number, and liters");
     return;
@@ -86,18 +86,16 @@ async function handlePayNow() {
 
   try {
     /* ================================
-       1️⃣ STORE REQUEST IN BACKEND
-       request = tank_capacity - remaining
+       1️⃣ STORE REQUEST (LITERS)
+       Example: 5 liters → store 5
     ================================= */
-    const requestValue = tankCapacity - tankRemaining;
-
     const requestRes = await fetch(
       "https://water-dispension.onrender.com/tank/request",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          request: requestValue,
+          request: liters, // ✅ STORE LITERS, NOT CAPACITY DIFFERENCE
         }),
       }
     );
@@ -109,7 +107,7 @@ async function handlePayNow() {
       return;
     }
 
-    console.log("Request stored:", requestData);
+    console.log("Request stored (liters):", requestData);
 
     /* ================================
        2️⃣ CREATE CASHFREE ORDER
@@ -130,12 +128,11 @@ async function handlePayNow() {
     const data = await res.json();
 
     if (!res.ok) {
-      console.error("Backend error:", data);
       alert(data.error || "Order creation failed");
       return;
     }
 
-    // Update UI from backend response
+    // Update UI from backend
     if (data.remaining != null) setTankRemaining(data.remaining);
     if (data.tds != null) setTds(data.tds);
 
@@ -143,7 +140,7 @@ async function handlePayNow() {
        3️⃣ OPEN CASHFREE CHECKOUT
     ================================= */
     const cashfree = await load({
-      mode: "sandbox", // change to "production" later
+      mode: "sandbox",
     });
 
     cashfree.checkout({
@@ -160,7 +157,6 @@ async function handlePayNow() {
     alert("Payment failed. Please try again.");
   }
 }
-
 
   return (
     <div className="bg-blue-200 min-h-screen flex flex-col items-center justify-center p-4">
