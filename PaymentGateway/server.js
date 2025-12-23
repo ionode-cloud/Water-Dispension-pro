@@ -16,7 +16,7 @@ app.use(bodyParser.json());
 app.use(cors());
 app.use(express.static("public"));
 
-/* MONGODB CONNECTION */
+/*  MONGODB CONNECTION */
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log(" MongoDB Connected"))
@@ -28,9 +28,6 @@ const tankSchema = new mongoose.Schema(
     tank_capacity: { type: Number, required: true },
     tds: { type: Number, required: true },
     remaining: { type: Number, required: true },
-
-    // NEW FIELD
-    request: { type: Number, required: true, default: 0 },
   },
   { timestamps: true }
 );
@@ -57,7 +54,7 @@ const cashfree = new Cashfree(
   process.env.CF_CLIENT_SECRET
 );
 
-/* TANK APIs */
+/* TANK APIs*/
 
 // GET tank
 app.get("/tank", async (req, res) => {
@@ -69,7 +66,6 @@ app.get("/tank", async (req, res) => {
         tank_capacity: 5000,
         tds: 150,
         remaining: 5000,
-        request: 0, // default request when creating
       });
     }
 
@@ -95,7 +91,6 @@ app.post("/tank", async (req, res) => {
       tank_capacity: Number(tank_capacity),
       tds: Number(tds),
       remaining: Number(tank_capacity),
-      request: 0, // default request
     });
 
     res.status(201).json({ message: "Tank created", tank });
@@ -108,7 +103,7 @@ app.post("/tank", async (req, res) => {
 // UPDATE tank - NOW INCLUDES REMAINING FIELD
 app.put("/tank", async (req, res) => {
   try {
-    const { tank_capacity, tds, remaining, request } = req.body;
+    const { tank_capacity, tds, remaining } = req.body;
 
     const tank = await Tank.findOne();
     if (!tank) return res.status(404).json({ error: "Tank not found" });
@@ -143,11 +138,6 @@ app.put("/tank", async (req, res) => {
       tank.remaining = newRemaining;
     }
 
-    // Update request if provided
-    if (request != null) {
-      tank.request = Number(request);
-    }
-
     await tank.save();
     res.json({ message: "Tank updated", tank });
   } catch (err) {
@@ -165,7 +155,6 @@ app.delete("/tank", async (req, res) => {
       tank_capacity: 5000,
       tds: 150,
       remaining: 5000,
-      request: 0,
     });
 
     res.json({ message: "Tank reset", tank });
@@ -175,7 +164,7 @@ app.delete("/tank", async (req, res) => {
   }
 });
 
-/* CREATE ORDER */
+/*CREATE ORDER */
 app.post("/create-order", async (req, res) => {
   try {
     const { amount, mobile, liters } = req.body;
@@ -187,17 +176,18 @@ app.post("/create-order", async (req, res) => {
     const tank = await Tank.findOne();
     if (!tank) return res.status(404).json({ error: "Tank not found" });
 
-    // Use tank.request to check available water (tank_capacity - remaining)
-    const available = tank.tank_capacity - tank.remaining;
-    if (liters > available) {
+    if (liters > tank.remaining) {
       return res.status(400).json({
         error: "INSUFFICIENT_WATER",
-        available: available,
+        available: tank.remaining,
       });
     }
 
     const orderId = `order_${Date.now()}`;
 
+    // FIX: Use environment variable for base URL
+    // For production (Render), use your deployed URL
+    // For local testing with ngrok, set BASE_URL in .env
     const baseUrl = process.env.BASE_URL || `https://water-dispension.onrender.com`;
 
     const request = {
@@ -216,10 +206,6 @@ app.post("/create-order", async (req, res) => {
     };
 
     const response = await cashfree.PGCreateOrder(request);
-
-    // Store the requested liters in tank.request
-    tank.request = Number(liters);
-    await tank.save();
 
     res.json({
       payment_session_id: response.data.payment_session_id,
@@ -250,8 +236,6 @@ app.get("/payment-success", async (req, res) => {
 
       // Update remaining water
       tank.remaining = Math.max(0, tank.remaining - used);
-      // Reset request after successful payment
-      tank.request = 0;
       await tank.save();
 
       const bill = {
@@ -296,7 +280,7 @@ app.get("/check-payment-status/:orderId", async (req, res) => {
   }
 });
 
-/* START SERVER */
+/*  START SERVER*/
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
