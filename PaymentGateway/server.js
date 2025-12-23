@@ -29,13 +29,12 @@ const tankSchema = new mongoose.Schema(
     tds: { type: Number, required: true },
     remaining: { type: Number, required: true },
 
-    deducted_water: { type: Number, default: 0 }, // manual value
-    force_deducted: { type: Boolean, default: false }, // 🔑 toggle
-
+    deducted_water: { type: Number }, // no default
     request: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
+
 
 
 const Tank = mongoose.model("Tank", tankSchema);
@@ -75,10 +74,12 @@ app.get("/tank", async (req, res) => {
       });
     }
 
-    const deducted =
-      tank.force_deducted === true
-        ? tank.deducted_water
-        : tank.tank_capacity - tank.remaining;
+    const hasManualValue =
+      tank.deducted_water !== undefined && tank.deducted_water !== null;
+
+    const deducted = hasManualValue
+      ? tank.deducted_water
+      : tank.tank_capacity - tank.remaining;
 
     res.json({
       ...tank.toObject(),
@@ -92,28 +93,22 @@ app.get("/tank", async (req, res) => {
 // UPDATE tank
 app.put("/tank", async (req, res) => {
   try {
-    const {
-      tank_capacity,
-      tds,
-      remaining,
-      deducted_water,
-      force_deducted,
-    } = req.body;
+    const { tank_capacity, tds, remaining, deducted_water } = req.body;
 
     const tank = await Tank.findOne();
     if (!tank) return res.status(404).json({ error: "Tank not found" });
 
-    if (tank_capacity !== undefined) tank.tank_capacity = Number(tank_capacity);
-    if (tds !== undefined) tank.tds = Number(tds);
-    if (remaining !== undefined) tank.remaining = Number(remaining);
+    if (tank_capacity !== undefined)
+      tank.tank_capacity = Number(tank_capacity);
 
-    // allow force toggle
-    if (force_deducted !== undefined) {
-      tank.force_deducted = Boolean(force_deducted);
-    }
+    if (tds !== undefined)
+      tank.tds = Number(tds);
 
-    // allow manual value ONLY when forced
-    if (deducted_water !== undefined) {
+    if (remaining !== undefined)
+      tank.remaining = Number(remaining);
+
+    // 🔑 RAW MODE — if key exists, store it (even 0)
+    if (Object.prototype.hasOwnProperty.call(req.body, "deducted_water")) {
       tank.deducted_water = Number(deducted_water);
     }
 
@@ -124,6 +119,7 @@ app.put("/tank", async (req, res) => {
     res.status(500).json({ error: "Failed to update tank" });
   }
 });
+
 
 // DELETE / RESET tank
 app.delete("/tank", async (req, res) => {
@@ -246,6 +242,7 @@ app.get("/payment-success", async (req, res) => {
       tank.remaining = Math.max(0, tank.remaining - used);
       tank.request = 0;
       await tank.save();
+      tank.deducted_water = undefined;
 
       saveOrder({
         order_id,
