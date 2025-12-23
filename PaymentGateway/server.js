@@ -19,8 +19,8 @@ app.use(express.static("public"));
 /* ================= MONGODB CONNECTION ================= */
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log(" MongoDB Connected"))
-  .catch((err) => console.error(" MongoDB Error:", err));
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
 /* ================= TANK SCHEMA ================= */
 const tankSchema = new mongoose.Schema(
@@ -29,13 +29,13 @@ const tankSchema = new mongoose.Schema(
     tds: { type: Number, required: true },
     remaining: { type: Number, required: true },
 
-    deducted_water: { type: Number }, // no default
+    // manual OR auto (no flags)
+    deducted_water: { type: Number },
+
     request: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
-
-
 
 const Tank = mongoose.model("Tank", tankSchema);
 
@@ -54,7 +54,7 @@ function saveOrder(order) {
 
 /* ================= CASHFREE INIT ================= */
 const cashfree = new Cashfree(
-  CFEnvironment.SANDBOX, // change to PRODUCTION in live
+  CFEnvironment.SANDBOX,
   process.env.CF_CLIENT_ID,
   process.env.CF_CLIENT_SECRET
 );
@@ -74,10 +74,11 @@ app.get("/tank", async (req, res) => {
       });
     }
 
-    const hasManualValue =
+    // 🔑 Manual if exists, else auto
+    const hasManual =
       tank.deducted_water !== undefined && tank.deducted_water !== null;
 
-    const deducted = hasManualValue
+    const deducted = hasManual
       ? tank.deducted_water
       : tank.tank_capacity - tank.remaining;
 
@@ -90,7 +91,7 @@ app.get("/tank", async (req, res) => {
   }
 });
 
-// UPDATE tank
+// UPDATE tank (manual override supported)
 app.put("/tank", async (req, res) => {
   try {
     const { tank_capacity, tds, remaining, deducted_water } = req.body;
@@ -107,7 +108,7 @@ app.put("/tank", async (req, res) => {
     if (remaining !== undefined)
       tank.remaining = Number(remaining);
 
-    // 🔑 RAW MODE — if key exists, store it (even 0)
+    // 🔑 RAW manual value (even 0)
     if (Object.prototype.hasOwnProperty.call(req.body, "deducted_water")) {
       tank.deducted_water = Number(deducted_water);
     }
@@ -119,7 +120,6 @@ app.put("/tank", async (req, res) => {
     res.status(500).json({ error: "Failed to update tank" });
   }
 });
-
 
 // DELETE / RESET tank
 app.delete("/tank", async (req, res) => {
@@ -144,7 +144,6 @@ app.post("/tank/request", async (req, res) => {
   try {
     const { request } = req.body;
 
-    // allow 0, but still reject negative or non-number
     if (request === undefined || request === null) {
       return res.status(400).json({ error: "request is required" });
     }
@@ -239,10 +238,14 @@ app.get("/payment-success", async (req, res) => {
       const used = Number(liters) || 0;
 
       const tank = await Tank.findOne();
+
       tank.remaining = Math.max(0, tank.remaining - used);
       tank.request = 0;
-      await tank.save();
+
+      //  clear manual value → auto mode
       tank.deducted_water = undefined;
+
+      await tank.save();
 
       saveOrder({
         order_id,
