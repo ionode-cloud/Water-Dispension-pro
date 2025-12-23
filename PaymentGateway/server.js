@@ -19,8 +19,8 @@ app.use(express.static("public"));
 /* ================= MONGODB CONNECTION ================= */
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log(" MongoDB Connected"))
-  .catch((err) => console.error("MongoDB Error:", err));
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
 /* ================= TANK SCHEMA ================= */
 const tankSchema = new mongoose.Schema(
@@ -29,8 +29,8 @@ const tankSchema = new mongoose.Schema(
     tds: { type: Number, required: true },
     remaining: { type: Number, required: true },
 
-    // NEW FIELD
-    request: { type: Number, required: true, default: 0 },
+    // requested water in liters
+    request: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
@@ -52,23 +52,23 @@ function saveOrder(order) {
 
 /* ================= CASHFREE INIT ================= */
 const cashfree = new Cashfree(
-  CFEnvironment.SANDBOX,
+  CFEnvironment.SANDBOX, // change to PRODUCTION in live
   process.env.CF_CLIENT_ID,
   process.env.CF_CLIENT_SECRET
 );
 
 /* ================= TANK APIs ================= */
 
-// GET tank
+// GET tank data
 app.get("/tank", async (req, res) => {
   try {
     let tank = await Tank.findOne();
 
     if (!tank) {
       tank = await Tank.create({
-        tank_capacity: 5000,
+        tank_capacity: 4000,
         tds: 150,
-        remaining: 5000,
+        remaining: 3980,
         request: 0,
       });
     }
@@ -131,6 +131,7 @@ app.put("/tank", async (req, res) => {
     }
 
     await tank.save();
+
     res.json({
       message: "Tank updated",
       tank,
@@ -141,15 +142,15 @@ app.put("/tank", async (req, res) => {
   }
 });
 
-// DELETE tank (reset)
+// DELETE / RESET tank
 app.delete("/tank", async (req, res) => {
   try {
     await Tank.deleteMany();
 
     const tank = await Tank.create({
-      tank_capacity: 5000,
+      tank_capacity: 4000,
       tds: 150,
-      remaining: 5000,
+      remaining: 4000,
       request: 0,
     });
 
@@ -186,15 +187,15 @@ app.post("/tank/request", async (req, res) => {
     res.json({
       message: "Water requested successfully",
       request: tank.request,
-      deducted_water: tank.tank_capacity - tank.remaining,
       remaining: tank.remaining,
+      deducted_water: tank.tank_capacity - tank.remaining,
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to process request" });
   }
 });
 
-/* ================= CREATE ORDER ================= */
+/* ================= CREATE CASHFREE ORDER ================= */
 app.post("/create-order", async (req, res) => {
   try {
     const { amount, mobile, liters } = req.body;
@@ -281,5 +282,5 @@ app.get("/payment-success", async (req, res) => {
 
 /* ================= SERVER ================= */
 app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(`🚀 Server running on http://localhost:${port}`);
 });
