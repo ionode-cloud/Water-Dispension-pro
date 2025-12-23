@@ -29,8 +29,7 @@ const tankSchema = new mongoose.Schema(
     tds: { type: Number, required: true },
     remaining: { type: Number, required: true },
 
-    // requested water in liters
-    request: { type: Number, default: 0 },
+    deducted_water: { type: Number, default: 0 }, 
   },
   { timestamps: true }
 );
@@ -73,10 +72,8 @@ app.get("/tank", async (req, res) => {
       });
     }
 
-    res.json({
-      ...tank.toObject(),
-      deducted_water: tank.tank_capacity - tank.remaining,
-    });
+    res.json(tank);
+
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch tank data" });
   }
@@ -109,34 +106,26 @@ app.post("/tank", async (req, res) => {
 // UPDATE tank
 app.put("/tank", async (req, res) => {
   try {
-    const { tank_capacity, tds, remaining } = req.body;
+    const { tank_capacity, tds, remaining, deducted_water } = req.body;
 
     const tank = await Tank.findOne();
     if (!tank) return res.status(404).json({ error: "Tank not found" });
 
-    if (tank_capacity != null) {
-      tank.tank_capacity = Number(tank_capacity);
-      if (tank.remaining > tank.tank_capacity) {
-        tank.remaining = tank.tank_capacity;
-      }
-    }
+    if (tank_capacity !== undefined) tank.tank_capacity = Number(tank_capacity);
+    if (tds !== undefined) tank.tds = Number(tds);
+    if (remaining !== undefined) tank.remaining = Number(remaining);
 
-    if (tds != null) tank.tds = Number(tds);
-
-    if (remaining != null) {
-      if (remaining < 0 || remaining > tank.tank_capacity) {
-        return res.status(400).json({ error: "Invalid remaining value" });
+    // ✅ FORCE deducted_water (ALLOW 0)
+    if (deducted_water !== undefined) {
+      if (deducted_water < 0) {
+        return res.status(400).json({ error: "Invalid deducted_water" });
       }
-      tank.remaining = Number(remaining);
+      tank.deducted_water = Number(deducted_water);
     }
 
     await tank.save();
 
-    res.json({
-      message: "Tank updated",
-      tank,
-      deducted_water: tank.tank_capacity - tank.remaining,
-    });
+    res.json({ message: "Tank updated", tank });
   } catch (err) {
     res.status(500).json({ error: "Failed to update tank" });
   }
