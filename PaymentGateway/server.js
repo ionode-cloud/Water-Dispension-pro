@@ -19,8 +19,8 @@ app.use(express.static("public"));
 /* ================= MONGODB CONNECTION ================= */
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Error:", err));
+  .then(() => console.log(" MongoDB Connected"))
+  .catch((err) => console.error(" MongoDB Error:", err));
 
 /* ================= TANK SCHEMA ================= */
 const tankSchema = new mongoose.Schema(
@@ -165,22 +165,27 @@ app.post("/tank/request", async (req, res) => {
   try {
     const { request } = req.body;
 
-    if (!request || request <= 0) {
+    // allow 0, but still reject negative or non-number
+    if (request === undefined || request === null) {
+      return res.status(400).json({ error: "request is required" });
+    }
+
+    const numericRequest = Number(request);
+    if (Number.isNaN(numericRequest) || numericRequest < 0) {
       return res.status(400).json({ error: "Invalid request value" });
     }
 
     const tank = await Tank.findOne();
     if (!tank) return res.status(404).json({ error: "Tank not found" });
 
-    if (request > tank.remaining) {
+    if (numericRequest > tank.remaining) {
       return res.status(400).json({
         error: "INSUFFICIENT_WATER",
         available: tank.remaining,
       });
     }
 
-    // ✅ ONLY STORE REQUEST — DO NOT DEDUCT
-    tank.request = Number(request);
+    tank.request = numericRequest;
     await tank.save();
 
     res.json({
@@ -280,5 +285,5 @@ app.get("/payment-success", async (req, res) => {
 
 /* ================= SERVER ================= */
 app.listen(port, () => {
-  console.log(`🚀 Server running on http://localhost:${port}`);
+  console.log(` Server running on http://localhost:${port}`);
 });
