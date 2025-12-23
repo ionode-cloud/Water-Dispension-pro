@@ -2,8 +2,8 @@ import React from "react";
 import waveSvg from "./wave.svg"; 
 
 const WaterJar = ({
-  remaining = 500,
-  tankCapacity = 500,
+  remaining = 0,
+  tankCapacity = 0,
   label = "Water Tank",
 }) => {
   const heightPercent = (remaining / tankCapacity) * 100;
