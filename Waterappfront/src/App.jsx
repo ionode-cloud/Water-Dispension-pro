@@ -23,7 +23,7 @@ const App = () => {
   useEffect(() => {
     async function fetchTankSettings() {
       try {
-        const res = await fetch("https://water-dispension.onrender.com/tank");
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/tank`)
         const data = await res.json();
         setTankCapacity(data.tank_capacity);
         setTankRemaining(data.remaining);
@@ -79,9 +79,10 @@ const App = () => {
       alert("Enter amount, mobile number, and liters");
       return;
     }
-
+     //https://water-dispension.onrender.com
     // Create order from backend
-    const res = await fetch("https://water-dispension.onrender.com/create-order", {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/create-order`, {
+
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
