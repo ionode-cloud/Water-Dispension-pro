@@ -1,13 +1,17 @@
 import React from "react";
+import waveSvg from "./wave.svg"; 
 
-const WaterJar = ({ remaining = 500, tankCapacity = 500, label = "Water Tank" }) => {
+const WaterJar = ({
+  remaining = 0,
+  tankCapacity = 0,
+  label = "Water Tank",
+}) => {
   const heightPercent = (remaining / tankCapacity) * 100;
 
   return (
     <div className="flex flex-col items-center gap-5 p-5 rounded-2xl">
       {/* Tank */}
       <div className="relative w-60 h-70 mt-5 border-4 border-gray-300 rounded-2xl overflow-hidden flex items-end justify-center bg-blue-200 shadow-lg">
-        
         {/* Water Level */}
         <div
           className="absolute bottom-0 left-0 w-full overflow-hidden"
@@ -26,12 +30,14 @@ const WaterJar = ({ remaining = 500, tankCapacity = 500, label = "Water Tank" })
       </div>
 
       {/* Tank Name */}
-      <p className="text-blue-700 font-semibold text-lg uppercase tracking-wide ">
+      <p className="text-blue-700 font-semibold text-lg uppercase tracking-wide">
         {label}
       </p>
+
+      {/* Local CSS for wave animation */}
       <style>{`
         .wave {
-          background: url("/src/Components/wave.svg") repeat-x;
+          background: url("${waveSvg}") repeat-x;
           background-size: contain;
           position: absolute;
           bottom: 0;
@@ -41,16 +47,17 @@ const WaterJar = ({ remaining = 500, tankCapacity = 500, label = "Water Tank" })
           transform: translate3d(0,0,0);
         }
         .wave:nth-of-type(2) {
-          animation: wave 7s cubic-bezier(.36,.45,.63,.53) -.125s infinite, swell 7s ease -1.25s infinite;
+          animation: wave 7s cubic-bezier(.36,.45,.63,.53) -.125s infinite,
+                     swell 7s ease -1.25s infinite;
           opacity: 1;
         }
         @keyframes wave {
-          0% { margin-left: 0; }
+          0%   { margin-left: 0; }
           100% { margin-left: -1600px; }
         }
         @keyframes swell {
           0%, 100% { transform: translate3d(0,-25px,0); }
-          50% { transform: translate3d(0,5px,0); }
+          50%      { transform: translate3d(0,5px,0); }
         }
       `}</style>
     </div>

@@ -11,30 +11,35 @@ const { Cashfree, CFEnvironment } = require("cashfree-pg");
 const app = express();
 const port = process.env.PORT || 3567;
 
-/* MIDDLEWARE */
+/* ================= MIDDLEWARE ================= */
 app.use(bodyParser.json());
 app.use(cors());
 app.use(express.static("public"));
 
-/*  MONGODB CONNECTION */
+/* ================= MONGODB CONNECTION ================= */
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log(" MongoDB Connected"))
-  .catch((err) => console.error("MongoDB Error:", err));
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
-/* TANK SCHEMA */
+/* ================= TANK SCHEMA ================= */
 const tankSchema = new mongoose.Schema(
   {
     tank_capacity: { type: Number, required: true },
     tds: { type: Number, required: true },
     remaining: { type: Number, required: true },
+
+    // manual OR auto (no flags)
+    deducted_water: { type: Number },
+
+    request: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
 
 const Tank = mongoose.model("Tank", tankSchema);
 
-/* ORDER FILE SETUP */
+/* ================= ORDER FILE SETUP ================= */
 const ORDERS_FILE = path.join(__dirname, "order.json");
 
 if (!fs.existsSync(ORDERS_FILE)) {
@@ -47,85 +52,131 @@ function saveOrder(order) {
   fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
 }
 
-/* CASHFREE INIT */
+/* ================= CASHFREE INIT ================= */
 const cashfree = new Cashfree(
   CFEnvironment.SANDBOX,
   process.env.CF_CLIENT_ID,
   process.env.CF_CLIENT_SECRET
 );
 
-/* TANK APIs*/
+/* ================= TANK APIs ================= */
 
-// GET tank
+// GET tank data
 app.get("/tank", async (req, res) => {
-  let tank = await Tank.findOne();
+  try {
+    let tank = await Tank.findOne();
 
-  if (!tank) {
-    tank = await Tank.create({
-      tank_capacity: 500,
-      tds: 150,
-      remaining: 500,
-    });
-  }
-
-  res.json(tank);
-});
-
-// CREATE / RESET tank
-app.post("/tank", async (req, res) => {
-  const { tank_capacity, tds } = req.body;
-
-  if (tank_capacity == null || tds == null) {
-    return res.status(400).json({ error: "tank_capacity and tds required" });
-  }
-
-  await Tank.deleteMany();
-
-  const tank = await Tank.create({
-    tank_capacity: Number(tank_capacity),
-    tds: Number(tds),
-    remaining: Number(tank_capacity),
-  });
-
-  res.status(201).json({ message: "Tank created", tank });
-});
-
-// UPDATE tank
-app.put("/tank", async (req, res) => {
-  const { tank_capacity, tds } = req.body;
-
-  const tank = await Tank.findOne();
-  if (!tank) return res.status(404).json({ error: "Tank not found" });
-
-  if (tank_capacity != null) {
-    tank.tank_capacity = Number(tank_capacity);
-    if (tank.remaining > tank.tank_capacity) {
-      tank.remaining = tank.tank_capacity;
+    if (!tank) {
+      tank = await Tank.create({
+        tank_capacity: 102,
+        tds: 150,
+        remaining: 90,
+      });
     }
-  }
 
-  if (tds != null) {
-    tank.tds = Number(tds);
-  }
+    // 🔑 Manual if exists, else auto
+    const hasManual =
+      tank.deducted_water !== undefined && tank.deducted_water !== null;
 
-  await tank.save();
-  res.json({ message: "Tank updated", tank });
+    const deducted = hasManual
+      ? tank.deducted_water
+      : tank.tank_capacity - tank.remaining;
+
+    res.json({
+      ...tank.toObject(),
+      deducted_water: deducted,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch tank data" });
+  }
 });
 
-// DELETE tank (reset to default)
+// UPDATE tank (manual override supported)
+app.put("/tank", async (req, res) => {
+  try {
+    const { tank_capacity, tds, remaining, deducted_water } = req.body;
+
+    const tank = await Tank.findOne();
+    if (!tank) return res.status(404).json({ error: "Tank not found" });
+
+    if (tank_capacity !== undefined)
+      tank.tank_capacity = Number(tank_capacity);
+
+    if (tds !== undefined)
+      tank.tds = Number(tds);
+
+    if (remaining !== undefined)
+      tank.remaining = Number(remaining);
+
+    // 🔑 RAW manual value (even 0)
+    if (Object.prototype.hasOwnProperty.call(req.body, "deducted_water")) {
+      tank.deducted_water = Number(deducted_water);
+    }
+
+    await tank.save();
+
+    res.json({ message: "Tank updated", tank });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update tank" });
+  }
+});
+
+// DELETE / RESET tank
 app.delete("/tank", async (req, res) => {
-  await Tank.deleteMany();
+  try {
+    await Tank.deleteMany();
 
-  const tank = await Tank.create({
-    tank_capacity: 500,
-    tds: 150,
-    remaining: 500,
-  });
+    const tank = await Tank.create({
+      tank_capacity: 4000,
+      tds: 150,
+      remaining: 4000,
+      request: 0,
+    });
 
-  res.json({ message: "Tank reset", tank });
+    res.json({ message: "Tank reset", tank });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to reset tank" });
+  }
 });
 
-/*CREATE ORDER */
+/* ================= WATER REQUEST API ================= */
+app.post("/tank/request", async (req, res) => {
+  try {
+    const { request } = req.body;
+
+    if (request === undefined || request === null) {
+      return res.status(400).json({ error: "request is required" });
+    }
+
+    const numericRequest = Number(request);
+    if (Number.isNaN(numericRequest) || numericRequest < 0) {
+      return res.status(400).json({ error: "Invalid request value" });
+    }
+
+    const tank = await Tank.findOne();
+    if (!tank) return res.status(404).json({ error: "Tank not found" });
+
+    if (numericRequest > tank.remaining) {
+      return res.status(400).json({
+        error: "INSUFFICIENT_WATER",
+        available: tank.remaining,
+      });
+    }
+
+    tank.request = numericRequest;
+    await tank.save();
+
+    res.json({
+      message: "Request stored, proceed to payment",
+      request: tank.request,
+      remaining: tank.remaining,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to process request" });
+  }
+});
+
+/* ================= CREATE CASHFREE ORDER ================= */
 app.post("/create-order", async (req, res) => {
   try {
     const { amount, mobile, liters } = req.body;
@@ -145,6 +196,8 @@ app.post("/create-order", async (req, res) => {
     }
 
     const orderId = `order_${Date.now()}`;
+    const baseUrl =
+      process.env.BASE_URL || "https://water-dispension.onrender.com";
 
     const request = {
       order_id: orderId,
@@ -157,7 +210,7 @@ app.post("/create-order", async (req, res) => {
         customer_phone: mobile,
       },
       order_meta: {
-        return_url: `http://localhost:${port}/payment-success?order_id=${orderId}&liters=${liters}`,
+        return_url: `${baseUrl}/payment-success?order_id=${orderId}&liters=${liters}`,
       },
     };
 
@@ -167,14 +220,14 @@ app.post("/create-order", async (req, res) => {
       payment_session_id: response.data.payment_session_id,
       order_id: response.data.order_id,
       remaining: tank.remaining,
+      tds: tank.tds,
     });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Order creation failed" });
   }
 });
 
-/* PAYMENT SUCCESS */
+/* ================= PAYMENT SUCCESS ================= */
 app.get("/payment-success", async (req, res) => {
   const { order_id, liters } = req.query;
 
@@ -185,35 +238,35 @@ app.get("/payment-success", async (req, res) => {
       const used = Number(liters) || 0;
 
       const tank = await Tank.findOne();
+
       tank.remaining = Math.max(0, tank.remaining - used);
+      tank.request = 0;
+
+      //  clear manual value → auto mode
+      tank.deducted_water = undefined;
+
       await tank.save();
 
-      const bill = {
-        order_id: response.data.order_id,
+      saveOrder({
+        order_id,
         amount: response.data.order_amount,
-        currency: response.data.order_currency,
         liters: used,
-        customer: response.data.customer_details,
-        payment_status: "PAID",
-        payment_time: new Date().toISOString(),
         remaining_water: tank.remaining,
-      };
-
-      saveOrder(bill);
+        payment_status: "PAID",
+      });
 
       res.redirect(
-        `/bill.html?order_id=${bill.order_id}&amount=${bill.amount}&liters=${used}&remaining=${tank.remaining}`
+        `/bill.html?order_id=${order_id}&liters=${used}&remaining=${tank.remaining}`
       );
     } else {
       res.send("<h3>Payment Failed or Pending</h3>");
     }
   } catch (err) {
-    console.error(err);
     res.send("<h3>Error verifying payment</h3>");
   }
 });
 
-/*  START SERVER*/
+/* ================= SERVER ================= */
 app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(` Server running on http://localhost:${port}`);
 });
