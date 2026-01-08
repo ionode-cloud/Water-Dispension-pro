@@ -42,7 +42,7 @@ const App = () => {
   // Extract fetch logic into a reusable function
   async function fetchTankSettings() {
     try {
-      const res = await fetch("https://water-dispension.onrender.com/tank");
+      const res = await fetch("https://api.ionode.cloud/tank");
       const data = await res.json();
       setTankCapacity(data.tank_capacity);
       setTankRemaining(data.remaining);
@@ -104,7 +104,7 @@ const App = () => {
        Example: 5 liters → store 5
     ================================= */
     const requestRes = await fetch(
-      "https://water-dispension.onrender.com/tank/request",
+      "https://api.ionode.cloud/tank/request",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
