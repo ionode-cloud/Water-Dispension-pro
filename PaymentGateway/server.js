@@ -61,6 +61,11 @@ const cashfree = new Cashfree(
 
 /* ================= TANK APIs ================= */
 
+app.use(cors({
+  origin: ["https://water.ionode.cloud"],
+  methods: ["GET", "POST", "PUT", "DELETE"],
+}));
+
 // GET tank data
 app.get("/tank", async (req, res) => {
   try {
@@ -197,7 +202,7 @@ app.post("/create-order", async (req, res) => {
 
     const orderId = `order_${Date.now()}`;
     const baseUrl =
-      process.env.BASE_URL || "https://water-dispension.onrender.com";
+      process.env.BASE_URL || "https://water.ionode.cloud";
 
     const request = {
       order_id: orderId,
@@ -210,7 +215,7 @@ app.post("/create-order", async (req, res) => {
         customer_phone: mobile,
       },
       order_meta: {
-        return_url: `${baseUrl}/payment-success?order_id=${orderId}&liters=${liters}`,
+        return_url: `${baseUrl}/payment-success.html?order_id=${orderId}&amount=${amount}&liters=${liters}`,
       },
     };
 
@@ -223,6 +228,7 @@ app.post("/create-order", async (req, res) => {
       tds: tank.tds,
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Order creation failed" });
   }
 });
